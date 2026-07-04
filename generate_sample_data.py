@@ -131,8 +131,10 @@ def main():
     parser.add_argument("--num_sft", type=int, default=1000)
     parser.add_argument("--num_preference", type=int, default=500)
     parser.add_argument("--num_prompts", type=int, default=500)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    random.seed(args.seed)
     print("Generating sample training data...\n")
 
     sft_data = generate_sft_data(args.num_sft)

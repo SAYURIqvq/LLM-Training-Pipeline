@@ -72,6 +72,25 @@ Pre-training ──→ SFT ──┬─┤
 
 ## 快速开始
 
+### 1. 数据生成、配置校验与本地 smoke test
+
+下面这组命令不需要 GPU，可用于检查样例数据格式、DeepSpeed 配置结构和轻量校验逻辑：
+
+```bash
+python generate_sample_data.py --output_dir data/smoke --num_sft 8 --num_preference 4 --num_prompts 4 --seed 42
+
+python pipeline_validation.py \
+  --sft data/smoke/sft_train.jsonl \
+  --preference data/smoke/preference_train.jsonl \
+  --prompts data/smoke/prompts.jsonl \
+  --deepspeed ds_config.json \
+  --deepspeed ds_config_sft.json \
+  --deepspeed ds_config_zero3.json
+
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
 ### 2. 监督微调（SFT）
 
 ```bash
