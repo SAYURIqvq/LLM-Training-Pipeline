@@ -19,15 +19,20 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import deepspeed
 from torch.utils.data import Dataset, DataLoader
 
 # Transformer Engine (FP8 mixed precision)
-import transformer_engine.pytorch as te
-from transformer_engine.common.recipe import DelayedScaling, Format
+te = None
 
-# Flash Attention 2
-from flash_attn import flash_attn_func
+
+def _load_transformer_engine():
+    global te
+    if te is None:
+        import transformer_engine.pytorch as transformer_engine
+        te = transformer_engine
+    return te
+
+# Flash Attention 2 is imported only when selected by the attention module.
 
 # Flash Attention 3 (loaded lazily via kernels library)
 _fa3_module = None
@@ -117,6 +122,9 @@ class GQAFlashAttention(nn.Module):
 
         self.rotary = RotaryEmbedding(config.head_dim, config.max_seq_len, config.rope_theta)
         self.attn_dropout = config.dropout
+        if self.use_flash and not self.use_flash_3:
+            from flash_attn import flash_attn_func
+            self.fa2_func = flash_attn_func
 
         # Load Flash Attention 3 kernel
         if self.use_flash_3:
@@ -153,7 +161,7 @@ class GQAFlashAttention(nn.Module):
             q = q.transpose(1, 2).contiguous()   # (B, S, n_heads, D)
             k = k.transpose(1, 2).contiguous()   # (B, S, n_heads, D)
             v = v.transpose(1, 2).contiguous()   # (B, S, n_heads, D)
-            attn_out = flash_attn_func(
+            attn_out = self.fa2_func(
                 q, k, v,
                 dropout_p=self.attn_dropout if self.training else 0.0,
                 causal=True,
@@ -188,6 +196,7 @@ class TransformerBlock(nn.Module):
         self.use_te = config.use_te
 
         if self.use_te:
+            _load_transformer_engine()
             # Transformer Engine's LayerNormMLP for FP8 acceleration
             self.norm1 = te.RMSNorm(config.d_model)
             self.attn = GQAFlashAttention(config)
@@ -256,6 +265,7 @@ class GPTModel(nn.Module):
         ])
 
         if config.use_te:
+            _load_transformer_engine()
             self.norm_f = te.RMSNorm(config.d_model)
         else:
             self.norm_f = RMSNorm(config.d_model)
@@ -388,6 +398,10 @@ def log_metrics(step, loss, lr, throughput, elapsed, rank):
 
 
 def train(args):
+    import deepspeed
+    if args.use_te:
+        _load_transformer_engine()
+        from transformer_engine.common.recipe import DelayedScaling, Format
     # -------------------------------------------------------------------------
     # Setup
     # -------------------------------------------------------------------------

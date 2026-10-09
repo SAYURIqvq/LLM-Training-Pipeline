@@ -24,7 +24,7 @@ Pre-training ──→ SFT ──┬─┤
 
 - **DeepSpeed ZeRO-2/3** —— 支持多 GPU 分布式训练
 
-- **Transformer Engine FP8** —— 在 H100 GPU 上实现约 2 倍吞吐提升
+- **Transformer Engine FP8** —— 提供可选 FP8 路径；性能收益需在指定硬件与配置下实测
 
 - **LoRA** —— 高效低显存微调，并支持权重合并
 
@@ -88,10 +88,24 @@ python pipeline_validation.py \
   --deepspeed ds_config_zero3.json
 
 python -m pip install -r requirements-dev.txt
-python -m pytest tests -q
+python -m pytest tests/test_pipeline_validation.py -q
 ```
 
-### 2. 监督微调（SFT）
+### 2. CPU 最小训练闭环（无需模型下载）
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-smoke.txt
+python smoke_train.py --output-dir outputs/smoke --steps 3
+python -m pytest tests/test_training_smoke.py -q
+```
+
+这个测试使用 `train.py` 中实际的 `GPTModel`，以小尺寸 GQA 模型运行前向、反向和 AdamW 更新。保存模型、优化器及 RNG 状态后，恢复训练并逐参数验证与不中断训练一致。结果写入 `outputs/smoke/smoke_result.json`。
+
+验证范围：CPU / FP32 / PyTorch SDPA。它不验证 DeepSpeed 分布式 checkpoint、SFT 数据掩码、对齐算法或 GPU 内核。GPU 训练环境与实验记录要求见 [复现说明](docs/REPRODUCIBILITY.md)。
+
+### 3. 监督微调（SFT，需另行配置 GPU 依赖）
 
 ```bash
 # 全参数微调
@@ -160,11 +174,9 @@ deepspeed --num_gpus=8 ppo.py \
 --max_steps 1000 \
 --ppo_epochs 4 --kl_coef 0.05
 ```
-### 3c. GRPO（推荐用于推理任务）
+### 3c. GRPO
 
-```json
-{"image": "chart.png", "prompt": "最高的数值是多少？", "answer": "42"}
-```
+启动参数以 `grpo.py --help` 为准；数据生成见 `generate_grpo_data.py`。该路径尚未包含在 CPU smoke test 中，不能将 CPU CI 通过视为 GRPO 已验证。
 
 ---
 
